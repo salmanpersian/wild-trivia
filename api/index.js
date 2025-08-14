@@ -86,7 +86,12 @@ function applyPatch(room, patch, playerId, host) {
   return room;
 }
 
-function respond(res, obj, status = 200) { res.status(status).type('application/json').send(JSON.stringify(obj)); }
+function respond(res, obj, status = 200) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
+  try { res.end(JSON.stringify(obj)); } catch { res.end('{}'); }
+}
+
 function errorOut(res, msg, status = 400) { respond(res, { error: msg }, status); }
 
 function isDebug(req) {
@@ -102,7 +107,7 @@ function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+  if (req.method === 'OPTIONS') { res.statusCode = 200; res.end(); return; }
 
   const debug = isDebug(req);
   if (debug) {
@@ -193,7 +198,7 @@ function handler(req, res) {
     const payload = debugNow
       ? { error: 'Server error', message: String(err && err.message ? err.message : err), stack: err && err.stack ? String(err.stack) : undefined }
       : { error: 'Server error' };
-    return res.status(500).type('application/json').send(JSON.stringify(payload));
+    return respond(res, payload, 500);
   }
 }
 
