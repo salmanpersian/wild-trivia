@@ -163,8 +163,19 @@ function handler(req, res) {
 
     return errorOut(res, 'Unknown action');
   } catch (err) {
+    // Debug-aware error response
+    let debug = false;
+    try {
+      const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      debug = (process.env.DEBUG === '1') || u.searchParams.get('debug') === '1' || req.headers['x-debug'] === '1';
+    } catch {
+      debug = (process.env.DEBUG === '1') || req.headers['x-debug'] === '1';
+    }
     console.error('API Error:', err);
-    return errorOut(res, 'Server error', 500);
+    const payload = debug
+      ? { error: 'Server error', message: String(err && err.message ? err.message : err), stack: err && err.stack ? String(err.stack) : undefined }
+      : { error: 'Server error' };
+    return res.status(500).type('application/json').send(JSON.stringify(payload));
   }
 }
 
