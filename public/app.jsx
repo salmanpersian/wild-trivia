@@ -78,20 +78,12 @@ function QuestionScreenView({ room, playerId, pendingAnswer, isHost, answer, goN
           const ctx = new (window.AudioContext || window.webkitAudioContext)();
           const o = ctx.createOscillator();
           const g = ctx.createGain();
-          o.type = 'sine';
-          o.frequency.setValueAtTime(880, ctx.currentTime);
-          g.gain.setValueAtTime(0.001, ctx.currentTime);
-          g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.01);
-          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-          o.connect(g).connect(ctx.destination);
-          o.start();
-          o.stop(ctx.currentTime + 0.16);
-          setTimeout(() => ctx.close().catch(()=>{}), 300);
+          o.type = 'triangle'; o.frequency.value = 880; g.gain.value = 0.02; o.connect(g); g.connect(ctx.destination); o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 130);
         } catch {}
       }
     };
-    const id = setInterval(tick, 150);
-    return () => clearInterval(id);
+    const iv = setInterval(tick, 200);
+    return () => clearInterval(iv);
   }, [endsAt, timeUp]);
 
   if (!q) {
@@ -336,8 +328,13 @@ function App() {
   async function joinGame() {
     const name = (displayName || '').trim();
     if (name.length < 3) return;
-    const res = await api('joinOrCreate', { roomId: SINGLE_ROOM_ID, playerId, name });
-    if (res && res.room) { setRoom(res.room); localStorage.setItem('displayName', name); startPolling(); }
+    try {
+      const res = await api('joinOrCreate', { roomId: SINGLE_ROOM_ID, playerId, name });
+      if (res && res.room) { setRoom(res.room); localStorage.setItem('displayName', name); startPolling(); }
+    } catch (e) {
+      alert('Failed to join game. Please try again.');
+      console.error(e);
+    }
   }
 
   async function endAndExit() {

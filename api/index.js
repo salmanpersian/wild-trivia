@@ -137,7 +137,7 @@ function errorOut(res, msg, status = 400) {
   respond(res, { error: msg }, status);
 }
 
-module.exports = (req, res) => {
+function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -258,4 +258,7 @@ module.exports = (req, res) => {
     console.error('API Error:', err);
     return errorOut(res, 'Server error', 500);
   }
-};
+}
+
+module.exports = handler;
+module.exports.default = handler;
