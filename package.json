@@ -1,29 +1,21 @@
 {
   "name": "wild-trivia",
   "version": "1.0.0",
-  "description": "A real-time multiplayer trivia game built with React, Node.js, and Express",
-  "main": "server.js",
+  "description": "A real-time multiplayer trivia game built with React and Vercel serverless functions",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "deploy": "./deploy.sh",
-    "docker:build": "docker build -t wild-trivia .",
-    "docker:run": "docker run -p 8080:8080 wild-trivia",
-    "docker:compose": "docker-compose up -d",
-    "pm2:start": "pm2 start ecosystem.config.js --env production",
-    "pm2:stop": "pm2 stop wild-trivia",
-    "pm2:restart": "pm2 restart wild-trivia",
-    "pm2:logs": "pm2 logs wild-trivia"
+    "dev": "vercel dev",
+    "build": "echo 'Build completed'",
+    "vercel-build": "echo 'Vercel build completed'"
   },
   "keywords": [
     "trivia",
     "game",
     "multiplayer",
     "react",
-    "nodejs",
-    "express",
+    "vercel",
+    "serverless",
     "real-time"
   ],
   "author": "Wild Trivia Team",
