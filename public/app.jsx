@@ -302,37 +302,50 @@ function App() {
     // Cancel any existing loop
     if (pollIdRef.current) { clearTimeout(pollIdRef.current); pollIdRef.current = null; }
     const backoffRef = { ms: 900 };
+    const consecutive404Ref = { n: 0 };
 
     const tick = async () => {
-      // Skip if tab hidden
-      if (document.hidden) { pollIdRef.current = setTimeout(tick, backoffRef.ms); return; }
-      // If room is explicitly null (not joined), do not poll
-      if (!roomRef.current) { pollIdRef.current = setTimeout(tick, backoffRef.ms); return; }
+      // Baseline cadence by state when a room is present
+      const r = roomRef.current;
+      const state = r?.state || 'lobby';
+      const baseline = (state === 'question' || state === 'pregame') ? 1000 : 3000;
 
-      const ctrl = new AbortController();
+      // Skip if tab hidden
+      if (document.hidden) { pollIdRef.current = setTimeout(tick, baseline); return; }
+      // If no room joined, poll slower
+      if (!r) { pollIdRef.current = setTimeout(tick, 3000); return; }
+
       try {
         const res = await fetch(`${API}?action=getRoom`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomId: SINGLE_ROOM_ID }),
-          signal: ctrl.signal,
+          body: JSON.stringify({ roomId: SINGLE_ROOM_ID })
         });
         let json = null; try { json = await res.json(); } catch {}
         if (res.ok && json && json.room) {
-          setRoom(json.room); lastGoodRoomRef.current = json.room; backoffRef.ms = 900;
+          setRoom(json.room); lastGoodRoomRef.current = json.room; backoffRef.ms = baseline; consecutive404Ref.n = 0;
         } else if (res.status === 404) {
-          lastGoodRoomRef.current = null; setRoom(null);
+          consecutive404Ref.n += 1;
+          if (consecutive404Ref.n >= 8) { // ~8*baseline before drop
+            lastGoodRoomRef.current = null; setRoom(null); consecutive404Ref.n = 0;
+          }
+          backoffRef.ms = Math.max(500, Math.min(3000, baseline));
         } else {
-          // Transient error: increase backoff up to 5000ms
-          backoffRef.ms = Math.min(5000, Math.round(backoffRef.ms * 1.5));
+          // Transient error: back off up to 5s
+          consecutive404Ref.n = 0;
+          backoffRef.ms = Math.min(5000, Math.round((backoffRef.ms || baseline) * 1.5));
         }
       } catch {
-        backoffRef.ms = Math.min(5000, Math.round(backoffRef.ms * 1.5));
+        consecutive404Ref.n = 0;
+        backoffRef.ms = Math.min(5000, Math.round((backoffRef.ms || baseline) * 1.5));
       }
-      pollIdRef.current = setTimeout(tick, backoffRef.ms);
+
+      // Add small jitter +/- 100ms to avoid herd effects
+      const jitter = Math.floor((Math.random() * 200) - 100);
+      const next = Math.max(250, (backoffRef.ms || baseline) + jitter);
+      pollIdRef.current = setTimeout(tick, next);
     };
 
-    // Kick off loop
     pollIdRef.current = setTimeout(tick, 0);
   }
   function stopPolling() { if (pollIdRef.current) { clearTimeout(pollIdRef.current); pollIdRef.current = null; } }
