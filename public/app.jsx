@@ -316,6 +316,23 @@ function App() {
       if (!r) { pollIdRef.current = setTimeout(tick, 3000); return; }
 
       try {
+        // Burst check: if server signaled nuke, speed up cadence briefly
+        try {
+          const nukeRes = await fetch(`${API}?action=isNuked`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: SINGLE_ROOM_ID }) });
+          const nj = await nukeRes.json().catch(() => null);
+          if (nukeRes.ok && nj && nj.nuked) {
+            // short burst window
+            const burstUntil = Date.now() + 3000;
+            while (Date.now() < burstUntil) {
+              const r2 = await fetch(`${API}?action=getRoom`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: SINGLE_ROOM_ID }) });
+              let j2 = null; try { j2 = await r2.json(); } catch {}
+              if (r2.status === 404) { lastGoodRoomRef.current = null; setRoom(null); break; }
+              if (r2.ok && j2 && j2.room) { setRoom(j2.room); lastGoodRoomRef.current = j2.room; }
+              await new Promise(r => setTimeout(r, 150 + Math.floor(Math.random()*100))); // 150-250ms
+            }
+          }
+        } catch {}
+
         const res = await fetch(`${API}?action=getRoom`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
