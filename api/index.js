@@ -1,18 +1,22 @@
 const path = require('path');
 const fs = require('fs');
 
-// Directories and constants - use /tmp for Vercel compatibility
-const DATA_DIR = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
+// Environment detection
+const IS_VERCEL = Boolean(process.env.VERCEL);
+
+// Directories and constants - use memory on Vercel, /data or /tmp locally
+const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 const ROOM_ID = 'ROOM';
 
-// Ensure data directory exists
+// Memory store used on Vercel
+let memoryRoom = null;
+
+// Ensure data directory exists locally
 try {
-  if (!process.env.VERCEL) {
+  if (!IS_VERCEL) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
-} catch (error) {
-  // Directory might already exist or we're in Vercel
-}
+} catch {}
 
 // Utilities
 function roomPath(id) {
@@ -21,6 +25,9 @@ function roomPath(id) {
 }
 
 function readRoom(id) {
+  if (IS_VERCEL) {
+    return memoryRoom ? { ...memoryRoom } : null;
+  }
   const file = roomPath(id);
   if (!fs.existsSync(file)) return null;
   try {
@@ -33,6 +40,10 @@ function readRoom(id) {
 }
 
 function writeRoom(id, data) {
+  if (IS_VERCEL) {
+    memoryRoom = { ...data };
+    return;
+  }
   const file = roomPath(id);
   const tmp = `${file}.tmp`;
   const json = JSON.stringify(data, null, 0);
@@ -40,18 +51,12 @@ function writeRoom(id, data) {
     fs.writeFileSync(tmp, json, 'utf8');
     fs.renameSync(tmp, file);
   } catch (error) {
-    // Fallback for Vercel environment
-    try {
-      fs.writeFileSync(file, json, 'utf8');
-    } catch (writeError) {
-      console.error('Failed to write room data:', writeError);
-    }
+    try { fs.writeFileSync(file, json, 'utf8'); } catch {}
   }
 }
 
 function sanitizeName(name) {
   const raw = String(name || '').trim();
-  // Avoid Unicode property escapes for maximum runtime compatibility
   const cleaned = raw.replace(/[^A-Za-z0-9 _\-'.]/g, '').replace(/\s+/g, ' ');
   const finalName = cleaned === '' ? 'Player' : cleaned;
   return finalName.slice(0, 20);
@@ -138,25 +143,18 @@ function errorOut(res, msg, status = 400) {
 }
 
 function handler(req, res) {
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  // Attempt to parse string body (defensive)
   try {
     if (typeof req.body === 'string' && req.body.length) {
       req.body = JSON.parse(req.body);
     }
   } catch {}
 
-  // Allow both GET and POST for convenience
   if (req.method !== 'GET' && req.method !== 'POST') {
     return errorOut(res, 'Method not allowed', 405);
   }
@@ -225,7 +223,7 @@ function handler(req, res) {
       for (const pid of Object.keys(players)) players[pid].score = 0;
       const settings = existing.settings || { categoryIds: [], questionCount: null, questionTimeSec: null };
       const hostId = existing.hostId || Object.keys(players)[0];
-      try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {}
+      if (!IS_VERCEL) { try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {} }
       const room = {
         id: ROOM_ID,
         hostId,
@@ -249,7 +247,7 @@ function handler(req, res) {
       const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
       const existing = readRoom(ROOM_ID);
       if (existing && !isHost(existing, playerId)) return errorOut(res, 'Only host can reset');
-      try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {}
+      if (IS_VERCEL) { memoryRoom = null; } else { try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {} }
       return respond(res, { ok: true });
     }
 
