@@ -103,7 +103,7 @@ function isDebug(req) {
   }
 }
 
-async function handler(req, res) {
+function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -183,31 +183,8 @@ async function handler(req, res) {
       const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
       const existing = readRoom(ROOM_ID);
       if (existing && !isHost(existing, playerId)) return errorOut(res, 'Only host can reset');
-      writeRoom(ROOM_ID, null); // Explicitly set to null to simulate deletion
-      // Signal nuke with short-lived flag
-      if (IS_VERCEL) {
-        try {
-          const { kv } = require('@vercel/kv');
-          await kv.set(`room:${ROOM_ID}:nukedAt`, Date.now(), { ex: 10 });
-        } catch (e) {
-          console.error('Failed to set nukedAt flag in KV:', e);
-        }
-      }
+      if (IS_VERCEL) memoryRoom = null; else { try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {} }
       return respond(res, { ok: true });
-    }
-
-    if (action === 'isNuked') {
-      if (IS_VERCEL) {
-        try {
-          const { kv } = require('@vercel/kv');
-          const t = await kv.get(`room:${ROOM_ID}:nukedAt`);
-          return respond(res, { ok: true, nuked: Boolean(t) });
-        } catch (e) {
-          console.error('Failed to check nukedAt flag in KV:', e);
-          return respond(res, { ok: true, nuked: false });
-        }
-      }
-      return respond(res, { ok: true, nuked: false });
     }
 
     return errorOut(res, 'Unknown action');
