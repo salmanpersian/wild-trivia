@@ -20,7 +20,9 @@
   ],
   "author": "Wild Trivia Team",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "@vercel/kv": "latest"
+  },
   "engines": {
     "node": "20.x",
     "npm": ">=8.0.0"
@@ -34,5 +36,3 @@
   },
   "homepage": "https://github.com/salmanpersian/wild-trivia#readme"
 }
-
-
