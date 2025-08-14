@@ -311,12 +311,15 @@ function App() {
         let json = null; try { json = await res.json(); } catch {}
         if (res.ok && json && json.room) {
           setRoom(json.room); lastGoodRoomRef.current = json.room; failureStreak = 0;
+        } else if (res.status === 404) {
+          // Room truly gone
+          lastGoodRoomRef.current = null; setRoom(null);
         } else {
-          lastGoodRoomRef.current = null; setRoom(null); stopPolling();
+          // Transient error: keep showing last good room, continue polling
+          failureStreak++;
         }
       } catch {
         failureStreak++;
-        if (failureStreak >= 3 && !lastGoodRoomRef.current) { setRoom(null); stopPolling(); }
       } finally {
         inFlight = false;
       }
