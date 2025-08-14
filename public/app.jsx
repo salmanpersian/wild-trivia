@@ -299,33 +299,43 @@ function App() {
   }, [room, updateRoom]);
 
   function startPolling() {
-    if (pollIdRef.current) clearInterval(pollIdRef.current);
-    let inFlight = false;
-    let failureStreak = 0;
-    pollIdRef.current = setInterval(async () => {
-      if (document.hidden) return;
-      if (inFlight) return;
-      inFlight = true;
+    // Cancel any existing loop
+    if (pollIdRef.current) { clearTimeout(pollIdRef.current); pollIdRef.current = null; }
+    const backoffRef = { ms: 900 };
+
+    const tick = async () => {
+      // Skip if tab hidden
+      if (document.hidden) { pollIdRef.current = setTimeout(tick, backoffRef.ms); return; }
+      // If room is explicitly null (not joined), do not poll
+      if (!roomRef.current) { pollIdRef.current = setTimeout(tick, backoffRef.ms); return; }
+
+      const ctrl = new AbortController();
       try {
-        const res = await fetch(`${API}?action=getRoom`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: SINGLE_ROOM_ID }) });
+        const res = await fetch(`${API}?action=getRoom`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId: SINGLE_ROOM_ID }),
+          signal: ctrl.signal,
+        });
         let json = null; try { json = await res.json(); } catch {}
         if (res.ok && json && json.room) {
-          setRoom(json.room); lastGoodRoomRef.current = json.room; failureStreak = 0;
+          setRoom(json.room); lastGoodRoomRef.current = json.room; backoffRef.ms = 900;
         } else if (res.status === 404) {
-          // Room truly gone
           lastGoodRoomRef.current = null; setRoom(null);
         } else {
-          // Transient error: keep showing last good room, continue polling
-          failureStreak++;
+          // Transient error: increase backoff up to 5000ms
+          backoffRef.ms = Math.min(5000, Math.round(backoffRef.ms * 1.5));
         }
       } catch {
-        failureStreak++;
-      } finally {
-        inFlight = false;
+        backoffRef.ms = Math.min(5000, Math.round(backoffRef.ms * 1.5));
       }
-    }, 900);
+      pollIdRef.current = setTimeout(tick, backoffRef.ms);
+    };
+
+    // Kick off loop
+    pollIdRef.current = setTimeout(tick, 0);
   }
-  function stopPolling() { if (pollIdRef.current) { clearInterval(pollIdRef.current); pollIdRef.current = null; } }
+  function stopPolling() { if (pollIdRef.current) { clearTimeout(pollIdRef.current); pollIdRef.current = null; } }
   useEffect(() => () => stopPolling(), []);
 
   async function joinGame() {
