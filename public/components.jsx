@@ -4,7 +4,7 @@
   const Trivia = window.Trivia || {};
 
   // --- Config / constants ---
-  Trivia.API = Trivia.API || '/api';
+  Trivia.API = Trivia.API || '/api/index';
   Trivia.SINGLE_ROOM_ID = Trivia.SINGLE_ROOM_ID || 'ROOM';
   Trivia.CELEBRATION_GIFS = Trivia.CELEBRATION_GIFS || [
     'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif',
@@ -256,7 +256,7 @@
             <div className="flex flex-wrap gap-2">
               {[10,15,20].map(s => (
                 <button key={s} disabled={!isHost} onClick={() => { updateSettings({ questionTimeSec: s }); }}
-                  className={`text-left flex items-center justify-between gap-2 px-4 py-2 rounded-lg border transition ${isHost ? ((room.settings.questionTimeSec === s) ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-gray-900 text-gray-200 border-gray-800 hover:bg-gray-800') : ((room.settings.questionTimeSec === s) ? 'bg-gray-800 text-gray-400 border-gray-700' : 'bg-gray-900 text-gray-500 border-gray-800')} ${!isHost ? 'cursor-default' : ''}`}>
+                  className={`text-left flex items=center justify-between gap-2 px-4 py-2 rounded-lg border transition ${isHost ? ((room.settings.questionTimeSec === s) ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-gray-900 text-gray-200 border-gray-800 hover:bg-gray-800') : ((room.settings.questionTimeSec === s) ? 'bg-gray-800 text-gray-400 border-gray-700' : 'bg-gray-900 text-gray-500 border-gray-800')} ${!isHost ? 'cursor-default' : ''}`}>
                   <span className="flex items-center justify-between gap-2 min-w-[11rem] w-full"><span className="truncate">{s} seconds</span><span className="w-4 text-right">{room.settings.questionTimeSec === s ? '✓' : ''}</span></span>
                 </button>
               ))}
