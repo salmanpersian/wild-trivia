@@ -51,7 +51,8 @@ function writeRoom(id, data) {
 
 function sanitizeName(name) {
   const raw = String(name || '').trim();
-  const cleaned = raw.replace(/[^\p{L}\p{N} _\-'\.]/gu, '').replace(/\s+/g, ' ');
+  // Avoid Unicode property escapes for maximum runtime compatibility
+  const cleaned = raw.replace(/[^A-Za-z0-9 _\-'.]/g, '').replace(/\s+/g, ' ');
   const finalName = cleaned === '' ? 'Player' : cleaned;
   return finalName.slice(0, 20);
 }
@@ -148,12 +149,19 @@ module.exports = (req, res) => {
     return;
   }
 
+  // Attempt to parse string body (defensive)
+  try {
+    if (typeof req.body === 'string' && req.body.length) {
+      req.body = JSON.parse(req.body);
+    }
+  } catch {}
+
   // Only allow POST requests
   if (req.method !== 'POST') {
     return errorOut(res, 'Method not allowed', 405);
   }
 
-  const qAction = typeof req.query.action === 'string' ? req.query.action : '';
+  const qAction = typeof req.query?.action === 'string' ? req.query.action : '';
   const bAction = typeof req.body?.action === 'string' ? req.body.action : '';
   const action = qAction || bAction || '';
 
