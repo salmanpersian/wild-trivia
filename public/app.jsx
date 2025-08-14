@@ -304,7 +304,9 @@ function App() {
     const backoffRef = { ms: 900 };
 
     const tick = async () => {
+      // Skip if tab hidden
       if (document.hidden) { pollIdRef.current = setTimeout(tick, backoffRef.ms); return; }
+      // If room is explicitly null (not joined), do not poll
       if (!roomRef.current) { pollIdRef.current = setTimeout(tick, backoffRef.ms); return; }
 
       const ctrl = new AbortController();
@@ -319,23 +321,9 @@ function App() {
         if (res.ok && json && json.room) {
           setRoom(json.room); lastGoodRoomRef.current = json.room; backoffRef.ms = 900;
         } else if (res.status === 404) {
-          // Try auto-rejoin before clearing UI
-          try {
-            const savedName = (localStorage.getItem('displayName') || 'Player').trim() || 'Player';
-            const rejoin = await fetch(`${API}?action=joinOrCreate`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ roomId: SINGLE_ROOM_ID, playerId, name: savedName })
-            });
-            const j = await rejoin.json().catch(() => null);
-            if (rejoin.ok && j && j.room) {
-              setRoom(j.room); lastGoodRoomRef.current = j.room; backoffRef.ms = 900;
-            } else {
-              lastGoodRoomRef.current = null; setRoom(null);
-            }
-          } catch {
-            lastGoodRoomRef.current = null; setRoom(null);
-          }
+          lastGoodRoomRef.current = null; setRoom(null);
         } else {
+          // Transient error: increase backoff up to 5000ms
           backoffRef.ms = Math.min(5000, Math.round(backoffRef.ms * 1.5));
         }
       } catch {
@@ -344,6 +332,7 @@ function App() {
       pollIdRef.current = setTimeout(tick, backoffRef.ms);
     };
 
+    // Kick off loop
     pollIdRef.current = setTimeout(tick, 0);
   }
   function stopPolling() { if (pollIdRef.current) { clearTimeout(pollIdRef.current); pollIdRef.current = null; } }
