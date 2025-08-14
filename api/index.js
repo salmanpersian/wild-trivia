@@ -1,15 +1,17 @@
 const path = require('path');
 const fs = require('fs');
 
-// Directories and constants
-const DATA_DIR = path.join(process.cwd(), 'data');
+// Directories and constants - use /tmp for Vercel compatibility
+const DATA_DIR = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 const ROOM_ID = 'ROOM';
 
 // Ensure data directory exists
 try {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!process.env.VERCEL) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
 } catch (error) {
-  // Directory might already exist
+  // Directory might already exist or we're in Vercel
 }
 
 // Utilities
@@ -34,8 +36,17 @@ function writeRoom(id, data) {
   const file = roomPath(id);
   const tmp = `${file}.tmp`;
   const json = JSON.stringify(data, null, 0);
-  fs.writeFileSync(tmp, json, 'utf8');
-  fs.renameSync(tmp, file);
+  try {
+    fs.writeFileSync(tmp, json, 'utf8');
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    // Fallback for Vercel environment
+    try {
+      fs.writeFileSync(file, json, 'utf8');
+    } catch (writeError) {
+      console.error('Failed to write room data:', writeError);
+    }
+  }
 }
 
 function sanitizeName(name) {
