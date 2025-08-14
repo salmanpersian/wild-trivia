@@ -89,11 +89,29 @@ function applyPatch(room, patch, playerId, host) {
 function respond(res, obj, status = 200) { res.status(status).type('application/json').send(JSON.stringify(obj)); }
 function errorOut(res, msg, status = 400) { respond(res, { error: msg }, status); }
 
+function isDebug(req) {
+  try {
+    const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    return (process.env.DEBUG === '1') || u.searchParams.get('debug') === '1' || req.headers['x-debug'] === '1';
+  } catch {
+    return (process.env.DEBUG === '1') || req.headers['x-debug'] === '1';
+  }
+}
+
 function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  const debug = isDebug(req);
+  if (debug) {
+    console.log('[API] Incoming', {
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+    });
+  }
 
   try { if (typeof req.body === 'string' && req.body.length) req.body = JSON.parse(req.body); } catch {}
   if (req.method !== 'GET' && req.method !== 'POST') return errorOut(res, 'Method not allowed', 405);
@@ -103,6 +121,7 @@ function handler(req, res) {
     if (req.query && typeof req.query.action === 'string') action = req.query.action;
     if (!action) { const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`); action = u.searchParams.get('action') || ''; }
   } catch {}
+  if (debug) console.log('[API] Action', action);
   if (!action) return errorOut(res, 'Missing action');
 
   try {
@@ -113,12 +132,14 @@ function handler(req, res) {
       if (!room) {
         room = { id: ROOM_ID, hostId: playerId, state: 'lobby', settings: { categoryIds: [], questionCount: null, questionTimeSec: null }, players: { [playerId]: { id: playerId, name, score: 0 } }, countdownEndsAt: 0, intermissionEndsAt: 0, qIndex: -1, questions: [], answers: {}, createdAt: Date.now(), gameNo: 0, gifIndex: 0 };
         writeRoom(ROOM_ID, room);
+        if (debug) console.log('[API] Created room');
         return respond(res, { ok: true, room });
       }
       if (Object.keys(room.players || {}).length >= 10 && !room.players[playerId]) return errorOut(res, 'Room is full', 403);
       room.players[playerId] = room.players[playerId] || { id: playerId, name, score: 0 };
       room.players[playerId].name = name;
       writeRoom(ROOM_ID, room);
+      if (debug) console.log('[API] Joined room');
       return respond(res, { ok: true, room });
     }
 
@@ -163,16 +184,13 @@ function handler(req, res) {
 
     return errorOut(res, 'Unknown action');
   } catch (err) {
-    // Debug-aware error response
-    let debug = false;
+    let debugNow = debug;
     try {
       const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-      debug = (process.env.DEBUG === '1') || u.searchParams.get('debug') === '1' || req.headers['x-debug'] === '1';
-    } catch {
-      debug = (process.env.DEBUG === '1') || req.headers['x-debug'] === '1';
-    }
+      debugNow = debugNow || u.searchParams.get('debug') === '1';
+    } catch {}
     console.error('API Error:', err);
-    const payload = debug
+    const payload = debugNow
       ? { error: 'Server error', message: String(err && err.message ? err.message : err), stack: err && err.stack ? String(err.stack) : undefined }
       : { error: 'Server error' };
     return res.status(500).type('application/json').send(JSON.stringify(payload));
