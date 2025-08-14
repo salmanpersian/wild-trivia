@@ -37,12 +37,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/wild-trivia.git"
+    "url": "https://github.com/salmanpersian/wild-trivia.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/wild-trivia/issues"
+    "url": "https://github.com/salmanpersian/wild-trivia/issues"
   },
-  "homepage": "https://github.com/yourusername/wild-trivia#readme"
+  "homepage": "https://github.com/salmanpersian/wild-trivia#readme"
 }
 
 

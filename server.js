@@ -233,9 +233,19 @@ app.post('/api', (req, res) => {
   }
 });
 
-// Static files (serve index.html and assets from project root)
+<<<<<<< HEAD
+// Serve index.html for root path
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Static files (serve assets from project root)
 app.use(express.static(__dirname, { extensions: ['html'] }));
 
+// Handle all other routes by serving index.html (for SPA routing)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 app.listen(PORT, () => {
   /* eslint-disable no-console */
   console.log(`Wild Trivia server running at http://localhost:${PORT}`);
