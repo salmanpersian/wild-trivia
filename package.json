@@ -20,11 +20,9 @@
   ],
   "author": "Wild Trivia Team",
   "license": "MIT",
-  "dependencies": {
-    "express": "^4.19.2"
-  },
+  "dependencies": {},
   "engines": {
-    "node": ">=16.0.0",
+    "node": "20.x",
     "npm": ">=8.0.0"
   },
   "repository": {
