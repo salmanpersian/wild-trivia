@@ -1,0 +1,30 @@
+{
+  "name": "wild-trivia",
+  "version": "1.0.0",
+  "description": "A real-time multiplayer trivia game for cPanel deployment",
+  "main": "server.js",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "./start-server.sh"
+  },
+  "keywords": [
+    "trivia",
+    "game",
+    "multiplayer",
+    "cpanel",
+    "nodejs"
+  ],
+  "author": "Wild Trivia Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
+
+
