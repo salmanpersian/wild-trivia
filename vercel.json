@@ -5,5 +5,9 @@
       "runtime": "nodejs20.x",
       "maxDuration": 30
     }
-  }
+  },
+  "routes": [
+    { "src": "^/api$", "dest": "/api/index.js" },
+    { "src": "^/api/index$", "dest": "/api/index.js" }
+  ]
 }

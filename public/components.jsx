@@ -4,7 +4,7 @@
   const Trivia = window.Trivia || {};
 
   // --- Config / constants ---
-  Trivia.API = Trivia.API || '/api/index';
+  Trivia.API = Trivia.API || '/api';
   Trivia.SINGLE_ROOM_ID = Trivia.SINGLE_ROOM_ID || 'ROOM';
   Trivia.CELEBRATION_GIFS = Trivia.CELEBRATION_GIFS || [
     'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif',
