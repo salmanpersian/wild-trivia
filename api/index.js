@@ -156,8 +156,8 @@ module.exports = (req, res) => {
     }
   } catch {}
 
-  // Only allow POST requests
-  if (req.method !== 'POST') {
+  // Allow both GET and POST for convenience
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return errorOut(res, 'Method not allowed', 405);
   }
 
@@ -167,8 +167,8 @@ module.exports = (req, res) => {
 
   try {
     if (action === 'joinOrCreate') {
-      const name = sanitizeName(req.body?.name ?? 'Player');
-      const playerId = req.body?.playerId || Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const name = sanitizeName((req.method === 'GET' ? req.query?.name : req.body?.name) ?? 'Player');
+      const playerId = (req.method === 'GET' ? req.query?.playerId : req.body?.playerId) || Math.random().toString(36).slice(2) + Date.now().toString(36);
       let room = readRoom(ROOM_ID);
       if (!room) {
         room = {
@@ -205,8 +205,8 @@ module.exports = (req, res) => {
     }
 
     if (action === 'updateRoom') {
-      const patch = req.body?.patch;
-      const playerId = req.body?.playerId;
+      const patch = req.method === 'GET' ? undefined : req.body?.patch;
+      const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
       if (!playerId) return errorOut(res, 'Missing playerId');
       if (!patch || typeof patch !== 'object') return errorOut(res, 'Missing patch');
       const room = readRoom(ROOM_ID);
@@ -217,7 +217,7 @@ module.exports = (req, res) => {
     }
 
     if (action === 'wipeAndReset') {
-      const playerId = req.body?.playerId;
+      const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
       const existing = readRoom(ROOM_ID);
       if (!existing) return errorOut(res, 'Room not found', 404);
       if (!isHost(existing, playerId)) return errorOut(res, 'Only host can reset');
@@ -246,7 +246,7 @@ module.exports = (req, res) => {
     }
 
     if (action === 'nukeRoom') {
-      const playerId = req.body?.playerId;
+      const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
       const existing = readRoom(ROOM_ID);
       if (existing && !isHost(existing, playerId)) return errorOut(res, 'Only host can reset');
       try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {}
