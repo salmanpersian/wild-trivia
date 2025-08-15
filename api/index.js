@@ -1,68 +1,38 @@
 const path = require('path');
 const fs = require('fs');
-let kv = null;
-try { ({ kv } = require('@vercel/kv')); } catch {}
 
 // Environment detection
 const IS_VERCEL = Boolean(process.env.VERCEL);
-const HAS_KV = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN && kv);
 
-// Directories and constants - use local disk only when KV not available
-const DATA_DIR = path.join(process.cwd(), 'data');
+// Directories and constants - use memory on Vercel, /data locally
+const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 const ROOM_ID = 'ROOM';
 
-// Ensure data directory exists locally (for fallback)
-try { if (!HAS_KV) { fs.mkdirSync(DATA_DIR, { recursive: true }); } } catch {}
+// Memory store used on Vercel
+let memoryRoom = null;
+
+// Ensure data directory exists locally
+try { if (!IS_VERCEL) { fs.mkdirSync(DATA_DIR, { recursive: true }); } } catch {}
 
 function roomPath(id) {
   const safe = String(id || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   return path.join(DATA_DIR, `room_${safe}.json`);
 }
-function endedPath(id) {
-  const safe = String(id || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return path.join(DATA_DIR, `room_${safe}.ended`);
-}
 
-async function readRoom(id) {
-  if (HAS_KV) {
-    try { const data = await kv.get(`room:${id}`); return data || null; } catch { return null; }
-  }
+function readRoom(id) {
+  if (IS_VERCEL) return memoryRoom ? { ...memoryRoom } : null;
   const file = roomPath(id);
   if (!fs.existsSync(file)) return null;
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
-async function writeRoom(id, data) {
-  if (HAS_KV) {
-    try { await kv.set(`room:${id}`, data, { ex: 60 * 60 * 12 }); } catch {}
-    return;
-  }
+function writeRoom(id, data) {
+  if (IS_VERCEL) { memoryRoom = { ...data }; return; }
   const file = roomPath(id);
   const tmp = `${file}.tmp`;
   const json = JSON.stringify(data, null, 0);
   try { fs.writeFileSync(tmp, json, 'utf8'); fs.renameSync(tmp, file); }
   catch { try { fs.writeFileSync(file, json, 'utf8'); } catch {} }
-}
-
-async function deleteRoom(id) {
-  if (HAS_KV) {
-    try { await kv.del(`room:${id}`); } catch {}
-    return;
-  }
-  try { fs.unlinkSync(roomPath(id)); } catch {}
-}
-
-async function setEnded(id, seconds = 3600) {
-  if (HAS_KV) { try { await kv.set(`room:${id}:ended`, Date.now(), { ex: seconds }); } catch {} return; }
-  try { fs.writeFileSync(endedPath(id), String(Date.now()), 'utf8'); } catch {}
-}
-async function clearEnded(id) {
-  if (HAS_KV) { try { await kv.del(`room:${id}:ended`); } catch {} return; }
-  try { fs.unlinkSync(endedPath(id)); } catch {}
-}
-async function isEnded(id) {
-  if (HAS_KV) { try { return Boolean(await kv.get(`room:${id}:ended`)); } catch { return false; } }
-  try { return fs.existsSync(endedPath(id)); } catch { return false; }
 }
 
 function sanitizeName(name) {
@@ -133,7 +103,7 @@ function isDebug(req) {
   }
 }
 
-async function handler(req, res) {
+function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -141,7 +111,11 @@ async function handler(req, res) {
 
   const debug = isDebug(req);
   if (debug) {
-    console.log('[API] Incoming', { method: req.method, url: req.url });
+    console.log('[API] Incoming', {
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+    });
   }
 
   try { if (typeof req.body === 'string' && req.body.length) req.body = JSON.parse(req.body); } catch {}
@@ -152,32 +126,30 @@ async function handler(req, res) {
     if (req.query && typeof req.query.action === 'string') action = req.query.action;
     if (!action) { const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`); action = u.searchParams.get('action') || ''; }
   } catch {}
+  if (debug) console.log('[API] Action', action);
   if (!action) return errorOut(res, 'Missing action');
 
   try {
     if (action === 'joinOrCreate') {
       const name = sanitizeName((req.method === 'GET' ? req.query?.name : req.body?.name) ?? 'Player');
       const playerId = (req.method === 'GET' ? req.query?.playerId : req.body?.playerId) || Math.random().toString(36).slice(2) + Date.now().toString(36);
-      let room = await readRoom(ROOM_ID);
+      let room = readRoom(ROOM_ID);
       if (!room) {
-        // Prevent immediate re-creation after host nuked the game
-        if (await isEnded(ROOM_ID)) {
-          return errorOut(res, 'Game ended. Please try again later.', 410);
-        }
         room = { id: ROOM_ID, hostId: playerId, state: 'lobby', settings: { categoryIds: [], questionCount: null, questionTimeSec: null }, players: { [playerId]: { id: playerId, name, score: 0 } }, countdownEndsAt: 0, intermissionEndsAt: 0, qIndex: -1, questions: [], answers: {}, createdAt: Date.now(), gameNo: 0, gifIndex: 0 };
-        await writeRoom(ROOM_ID, room);
-        await clearEnded(ROOM_ID);
+        writeRoom(ROOM_ID, room);
+        if (debug) console.log('[API] Created room');
         return respond(res, { ok: true, room });
       }
       if (Object.keys(room.players || {}).length >= 10 && !room.players[playerId]) return errorOut(res, 'Room is full', 403);
       room.players[playerId] = room.players[playerId] || { id: playerId, name, score: 0 };
       room.players[playerId].name = name;
-      await writeRoom(ROOM_ID, room);
+      writeRoom(ROOM_ID, room);
+      if (debug) console.log('[API] Joined room');
       return respond(res, { ok: true, room });
     }
 
     if (action === 'getRoom') {
-      const room = await readRoom(ROOM_ID);
+      const room = readRoom(ROOM_ID);
       if (!room) return errorOut(res, 'Room not found', 404);
       return respond(res, { ok: true, room });
     }
@@ -187,41 +159,43 @@ async function handler(req, res) {
       const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
       if (!playerId) return errorOut(res, 'Missing playerId');
       if (!patch || typeof patch !== 'object') return errorOut(res, 'Missing patch');
-      const room = await readRoom(ROOM_ID);
+      const room = readRoom(ROOM_ID);
       if (!room) return errorOut(res, 'Room not found', 404);
       const next = applyPatch({ ...room }, patch, playerId, isHost(room, playerId));
-      await writeRoom(ROOM_ID, next);
+      writeRoom(ROOM_ID, next);
       return respond(res, { ok: true, room: next });
     }
 
     if (action === 'wipeAndReset') {
       const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
-      const existing = await readRoom(ROOM_ID);
+      const existing = readRoom(ROOM_ID);
       if (!existing) return errorOut(res, 'Room not found', 404);
       if (!isHost(existing, playerId)) return errorOut(res, 'Only host can reset');
       const players = { ...(existing.players || {}) }; for (const pid of Object.keys(players)) players[pid].score = 0;
       const settings = existing.settings || { categoryIds: [], questionCount: null, questionTimeSec: null };
       const hostId = existing.hostId || Object.keys(players)[0];
       const room = { id: ROOM_ID, hostId, state: 'lobby', settings, players, countdownEndsAt: 0, intermissionEndsAt: 0, qIndex: -1, questions: [], answers: {}, createdAt: Date.now(), gameNo: (existing.gameNo || 0) + 1, gifIndex: 0 };
-      await writeRoom(ROOM_ID, room);
-      await clearEnded(ROOM_ID);
+      writeRoom(ROOM_ID, room);
       return respond(res, { ok: true, room });
     }
 
     if (action === 'nukeRoom') {
       const playerId = req.method === 'GET' ? req.query?.playerId : req.body?.playerId;
-      const existing = await readRoom(ROOM_ID);
+      const existing = readRoom(ROOM_ID);
       if (existing && !isHost(existing, playerId)) return errorOut(res, 'Only host can reset');
-      await deleteRoom(ROOM_ID);
-      await setEnded(ROOM_ID, 3600); // block re-create for 1 hour
+      if (IS_VERCEL) memoryRoom = null; else { try { fs.unlinkSync(roomPath(ROOM_ID)); } catch {} }
       return respond(res, { ok: true });
     }
 
     return errorOut(res, 'Unknown action');
   } catch (err) {
-    const debug = isDebug(req);
+    let debugNow = debug;
+    try {
+      const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      debugNow = debugNow || u.searchParams.get('debug') === '1';
+    } catch {}
     console.error('API Error:', err);
-    const payload = debug
+    const payload = debugNow
       ? { error: 'Server error', message: String(err && err.message ? err.message : err), stack: err && err.stack ? String(err.stack) : undefined }
       : { error: 'Server error' };
     return respond(res, payload, 500);
