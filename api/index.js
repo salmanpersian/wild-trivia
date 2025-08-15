@@ -3,16 +3,22 @@ const fs = require('fs');
 let kv = null;
 try { ({ kv } = require('@vercel/kv')); } catch {}
 
-// Environment detection
+// Environment detection / namespacing
 const IS_VERCEL = Boolean(process.env.VERCEL);
+const ENV = process.env.VERCEL_ENV || (process.env.NODE_ENV || 'development');
+const NS = `wt:${ENV}`;
 const HAS_KV = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN && kv);
 
-// Directories and constants - use local disk only when KV not available
+// KV key helpers
+const kvKeyRoom = (id) => `${NS}:room:${String(id).toUpperCase()}`;
+const kvKeyEnded = (id) => `${NS}:room:${String(id).toUpperCase()}:ended`;
+
+// Directories and constants - file fallback only when NOT on Vercel
 const DATA_DIR = path.join(process.cwd(), 'data');
 const ROOM_ID = 'ROOM';
 
 // Ensure data directory exists locally (for fallback)
-try { if (!HAS_KV) { fs.mkdirSync(DATA_DIR, { recursive: true }); } } catch {}
+try { if (!IS_VERCEL) { fs.mkdirSync(DATA_DIR, { recursive: true }); } } catch {}
 
 function roomPath(id) {
   const safe = String(id || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -23,9 +29,22 @@ function endedPath(id) {
   return path.join(DATA_DIR, `room_${safe}.ended`);
 }
 
+function respond(res, obj, status = 200) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
+  try { res.end(JSON.stringify(obj)); } catch { res.end('{}'); }
+}
+function errorOut(res, msg, status = 400) { respond(res, { error: msg }, status); }
+
+function requireStorageOr503(res) {
+  if (IS_VERCEL && !HAS_KV) { respond(res, { error: 'Service unavailable: KV not configured' }, 503); return false; }
+  return true;
+}
+
 async function readRoom(id) {
-  if (HAS_KV) {
-    try { const data = await kv.get(`room:${id}`); return data || null; } catch { return null; }
+  if (IS_VERCEL) {
+    if (!HAS_KV) throw new Error('KV_REQUIRED');
+    try { const data = await kv.get(kvKeyRoom(id)); return data || null; } catch { return null; }
   }
   const file = roomPath(id);
   if (!fs.existsSync(file)) return null;
@@ -33,8 +52,9 @@ async function readRoom(id) {
 }
 
 async function writeRoom(id, data) {
-  if (HAS_KV) {
-    try { await kv.set(`room:${id}`, data, { ex: 60 * 60 * 12 }); } catch {}
+  if (IS_VERCEL) {
+    if (!HAS_KV) throw new Error('KV_REQUIRED');
+    try { await kv.set(kvKeyRoom(id), data, { ex: 60 * 60 * 12 }); } catch {}
     return;
   }
   const file = roomPath(id);
@@ -45,23 +65,24 @@ async function writeRoom(id, data) {
 }
 
 async function deleteRoom(id) {
-  if (HAS_KV) {
-    try { await kv.del(`room:${id}`); } catch {}
+  if (IS_VERCEL) {
+    if (!HAS_KV) throw new Error('KV_REQUIRED');
+    try { await kv.del(kvKeyRoom(id)); } catch {}
     return;
   }
   try { fs.unlinkSync(roomPath(id)); } catch {}
 }
 
 async function setEnded(id, seconds = 3600) {
-  if (HAS_KV) { try { await kv.set(`room:${id}:ended`, Date.now(), { ex: seconds }); } catch {} return; }
+  if (IS_VERCEL) { if (!HAS_KV) throw new Error('KV_REQUIRED'); try { await kv.set(kvKeyEnded(id), Date.now(), { ex: seconds }); } catch {} return; }
   try { fs.writeFileSync(endedPath(id), String(Date.now()), 'utf8'); } catch {}
 }
 async function clearEnded(id) {
-  if (HAS_KV) { try { await kv.del(`room:${id}:ended`); } catch {} return; }
+  if (IS_VERCEL) { if (!HAS_KV) throw new Error('KV_REQUIRED'); try { await kv.del(kvKeyEnded(id)); } catch {} return; }
   try { fs.unlinkSync(endedPath(id)); } catch {}
 }
 async function isEnded(id) {
-  if (HAS_KV) { try { return Boolean(await kv.get(`room:${id}:ended`)); } catch { return false; } }
+  if (IS_VERCEL) { if (!HAS_KV) throw new Error('KV_REQUIRED'); try { return Boolean(await kv.get(kvKeyEnded(id))); } catch { return false; } }
   try { return fs.existsSync(endedPath(id)); } catch { return false; }
 }
 
@@ -116,14 +137,6 @@ function applyPatch(room, patch, playerId, host) {
   return room;
 }
 
-function respond(res, obj, status = 200) {
-  res.statusCode = status;
-  res.setHeader('Content-Type', 'application/json');
-  try { res.end(JSON.stringify(obj)); } catch { res.end('{}'); }
-}
-
-function errorOut(res, msg, status = 400) { respond(res, { error: msg }, status); }
-
 function isDebug(req) {
   try {
     const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -141,7 +154,7 @@ async function handler(req, res) {
 
   const debug = isDebug(req);
   if (debug) {
-    console.log('[API] Incoming', { method: req.method, url: req.url });
+    console.log('[API] Incoming', { method: req.method, url: req.url, storage: IS_VERCEL ? (HAS_KV?'kv':'none') : 'file' });
   }
 
   try { if (typeof req.body === 'string' && req.body.length) req.body = JSON.parse(req.body); } catch {}
@@ -154,16 +167,18 @@ async function handler(req, res) {
   } catch {}
   if (!action) return errorOut(res, 'Missing action');
 
+  // On Vercel, storage is KV-only; block if KV missing
+  if (IS_VERCEL && !HAS_KV && ['joinOrCreate','getRoom','updateRoom','wipeAndReset','nukeRoom'].includes(action)) {
+    return respond(res, { error: 'Service unavailable: KV not configured' }, 503);
+  }
+
   try {
     if (action === 'joinOrCreate') {
       const name = sanitizeName((req.method === 'GET' ? req.query?.name : req.body?.name) ?? 'Player');
       const playerId = (req.method === 'GET' ? req.query?.playerId : req.body?.playerId) || Math.random().toString(36).slice(2) + Date.now().toString(36);
       let room = await readRoom(ROOM_ID);
       if (!room) {
-        // Prevent immediate re-creation after host nuked the game
-        if (await isEnded(ROOM_ID)) {
-          return errorOut(res, 'Game ended. Please try again later.', 410);
-        }
+        if (await isEnded(ROOM_ID)) { return errorOut(res, 'Game ended. Please try again later.', 410); }
         room = { id: ROOM_ID, hostId: playerId, state: 'lobby', settings: { categoryIds: [], questionCount: null, questionTimeSec: null }, players: { [playerId]: { id: playerId, name, score: 0 } }, countdownEndsAt: 0, intermissionEndsAt: 0, qIndex: -1, questions: [], answers: {}, createdAt: Date.now(), gameNo: 0, gifIndex: 0 };
         await writeRoom(ROOM_ID, room);
         await clearEnded(ROOM_ID);
@@ -219,6 +234,9 @@ async function handler(req, res) {
 
     return errorOut(res, 'Unknown action');
   } catch (err) {
+    if (String(err && err.message).includes('KV_REQUIRED') || (IS_VERCEL && !HAS_KV)) {
+      return respond(res, { error: 'Service unavailable: KV not configured' }, 503);
+    }
     const debug = isDebug(req);
     console.error('API Error:', err);
     const payload = debug
